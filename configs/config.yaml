@@ -1,24 +1,26 @@
 # configs/config.yaml
 
+# 词汇表大小将由脚本动态确定，我们在这里定义特殊标记的ID
+special_tokens:
+  unk_idx: 0
+  pad_idx: 1
+  sos_idx: 2
+  eos_idx: 3
+
 model:
-  vocab_size_src: 10000          # 源语言词汇表大小
-  vocab_size_tgt: 10000          # 目标语言词汇表大小
-  max_seq_len: 256               # 支持的最大序列长度
-  embed_dim: 256                 # 词嵌入和位置嵌入维度
-  hidden_dim: 512                # 卷积块内部的隐藏维度
-  num_encoder_layers: 4          # 编码器层数
-  num_decoder_layers: 4          # 解码器层数
-  encoder_kernel_size: 3         # 编码器卷积核大小
-  decoder_kernel_size: 3         # 解码器卷积核大小
-  dropout: 0.1
+  # vocab_size_src 和 vocab_size_tgt 将在 run.py 中动态添加
+  max_seq_len: 256
+  embed_dim: 256
+  hidden_dim: 512
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  encoder_kernel_size: 3
+  decoder_kernel_size: 3
+  dropout: 0.25 # 稍微增加dropout以防止过拟合
 
 training:
-  learning_rate: 0.001
-  batch_size: 32
+  learning_rate: 0.0005 # 降低一点学习率可能更稳定
+  batch_size: 128 # 增加批次大小以充分利用GPU
   num_epochs: 10
-  device: "auto"                 # "auto", "cpu", "cuda"
-
-data:
-  # 在实际项目中，这里会是数据集文件的路径
-  src_data_path: "data/train.en"
-  tgt_data_path: "data/train.de"
+  device: "auto"
+  clip_grad: 1.0 # 梯度裁剪的阈值
