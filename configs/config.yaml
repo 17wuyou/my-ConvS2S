@@ -1,0 +1,24 @@
+# configs/config.yaml
+
+model:
+  vocab_size_src: 10000          # 源语言词汇表大小
+  vocab_size_tgt: 10000          # 目标语言词汇表大小
+  max_seq_len: 256               # 支持的最大序列长度
+  embed_dim: 256                 # 词嵌入和位置嵌入维度
+  hidden_dim: 512                # 卷积块内部的隐藏维度
+  num_encoder_layers: 4          # 编码器层数
+  num_decoder_layers: 4          # 解码器层数
+  encoder_kernel_size: 3         # 编码器卷积核大小
+  decoder_kernel_size: 3         # 解码器卷积核大小
+  dropout: 0.1
+
+training:
+  learning_rate: 0.001
+  batch_size: 32
+  num_epochs: 10
+  device: "auto"                 # "auto", "cpu", "cuda"
+
+data:
+  # 在实际项目中，这里会是数据集文件的路径
+  src_data_path: "data/train.en"
+  tgt_data_path: "data/train.de"
