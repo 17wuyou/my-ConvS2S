@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 import yaml
 import time
+import math  # <--- 在这里加上这一行！
 from conv_s2s.model import ConvS2S
 from utils import get_tokenizers, build_vocab, get_dataloaders
 
@@ -67,10 +68,10 @@ def main():
     with open('configs/config.yaml', 'r') as f:
         config = yaml.safe_load(f)
 
-    # 2. 数据预处理
+# 2. 数据预处理
     spacy_de, spacy_en = get_tokenizers()
     vocab_de, vocab_en = build_vocab(spacy_de, spacy_en)
-    
+
     # 将动态获取的词汇表大小更新到配置中
     config['model']['vocab_size_src'] = len(vocab_de)
     config['model']['vocab_size_tgt'] = len(vocab_en)

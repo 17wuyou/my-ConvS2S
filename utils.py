@@ -1,116 +1,118 @@
-# utils.py
+# utils.py (自包含数据集，不再有任何外部依赖)
 
 import spacy
-from torchtext.datasets import IWSLT2016
-from torchtext.vocab import build_vocab_from_iterator
+import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.nn.utils.rnn import pad_sequence
-import torch
+from torchtext.vocab import build_vocab_from_iterator
 
 # --- 1. 定义特殊标记和它们的索引 ---
-# UNK: 未知词, PAD: 填充, SOS: 句子开始, EOS: 句子结束
 SPECIAL_TOKENS = ['<unk>', '<pad>', '<sos>', '<eos>']
 UNK_IDX, PAD_IDX, SOS_IDX, EOS_IDX = 0, 1, 2, 3
 
 # --- 2. 加载分词器 ---
 def get_tokenizers():
-    """加载SpaCy的德语和英语分词器"""
     print("正在加载分词器...")
     try:
-        spacy_de = spacy.load('de_core_news_sm')
-        spacy_en = spacy.load('en_core_web_sm')
-    except IOError:
-        print("请先运行: python -m spacy download de_core_news_sm 和 en_core_web_sm")
+        import de_core_news_sm
+        import en_core_web_sm
+        spacy_de = de_core_news_sm.load()
+        spacy_en = en_core_web_sm.load()
+    except ImportError:
+        print("请先确保已运行 'python -m spacy download de_core_news_sm' 和 'en_core_web_sm' 并重启了会话。")
         exit()
     print("分词器加载完毕。")
     return spacy_de, spacy_en
 
-# --- 3. 构建词汇表 ---
+# --- 3. 定义一个微型数据集 ---
+# 我们不再从网上下载，而是直接在代码里定义数据
+DUMMY_DATA = [
+    ("Ein Mann in einem roten Hemd.", "A man in a red shirt."),
+    ("Eine Frau isst einen Apfel.", "A woman is eating an apple."),
+    ("Zwei Hunde spielen im Park.", "Two dogs are playing in the park."),
+    ("Ein Junge liest ein Buch.", "A boy is reading a book."),
+    ("Das Mädchen springt.", "The girl is jumping."),
+    ("Ein Mann mit Brille.", "A man with glasses."),
+    ("Eine Frau mit einem Hut.", "A woman with a hat."),
+    ("Ein Hund bellt.", "A dog is barking."),
+    ("Eine Katze schläft.", "A cat is sleeping."),
+    ("Kinder lachen.", "Children are laughing."),
+]
+# 为了让训练有意义，我们把数据复制几百次
+TRAIN_DATA = DUMMY_DATA * 200
+VALID_DATA = DUMMY_DATA
+TEST_DATA = DUMMY_DATA
+
+
+# --- 4. 构建词汇表 ---
 def build_vocab(spacy_de, spacy_en):
-    """从IWSLT'14数据集构建德语和英语词汇表"""
-    print("正在构建词汇表...")
-    
+    print("正在从内置数据构建词汇表...")
+
     def tokenize_de(text):
         return [tok.text for tok in spacy_de.tokenizer(text)]
 
     def tokenize_en(text):
         return [tok.text for tok in spacy_en.tokenizer(text)]
 
-    def yield_tokens(data_iter, tokenizer, language_index):
-        for data_sample in data_iter:
-            yield tokenizer(data_sample[language_index])
+    def yield_tokens(data, tokenizer, lang_index):
+        for sample in data:
+            yield tokenizer(sample[lang_index])
 
-    # 加载训练数据来构建词汇表
-    train_iter = IWSLT2016(split='train', language_pair=('de', 'en'))
-    vocab_de = build_vocab_from_iterator(yield_tokens(train_iter, tokenize_de, 0),
-                                          min_freq=2,
+    print("正在构建德语词汇表...")
+    vocab_de = build_vocab_from_iterator(yield_tokens(TRAIN_DATA, tokenize_de, 0),
+                                          min_freq=1, # 频率设为1，因为数据量小
                                           specials=SPECIAL_TOKENS,
                                           special_first=True)
     vocab_de.set_default_index(UNK_IDX)
 
-    train_iter = IWSLT2016(split='train', language_pair=('de', 'en'))
-    vocab_en = build_vocab_from_iterator(yield_tokens(train_iter, tokenize_en, 1),
-                                          min_freq=2,
+    print("正在构建英语词汇表...")
+    vocab_en = build_vocab_from_iterator(yield_tokens(TRAIN_DATA, tokenize_en, 1),
+                                          min_freq=1,
                                           specials=SPECIAL_TOKENS,
                                           special_first=True)
     vocab_en.set_default_index(UNK_IDX)
-    
+
     print(f"德语词汇表大小: {len(vocab_de)}")
     print(f"英语词汇表大小: {len(vocab_en)}")
     print("词汇表构建完毕。")
     return vocab_de, vocab_en
 
-# --- 4. 定义自定义数据集类 ---
-class TranslationDataset(Dataset):
-    """一个用于包装文本数据的自定义PyTorch数据集"""
-    def __init__(self, data):
+# --- 5. 自定义PyTorch数据集类 ---
+class PyTorchTranslationDataset(Dataset):
+    def __init__(self, data, vocab_de, vocab_en, tokenize_de, tokenize_en):
         self.data = data
+        self.vocab_de = vocab_de
+        self.vocab_en = vocab_en
+        self.tokenize_de = tokenize_de
+        self.tokenize_en = tokenize_en
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
-        return self.data[idx]
+        de_text, en_text = self.data[idx]
+        
+        de_tensor = torch.tensor([SOS_IDX] + [self.vocab_de[token] for token in self.tokenize_de(de_text)] + [EOS_IDX], dtype=torch.long)
+        en_tensor = torch.tensor([SOS_IDX] + [self.vocab_en[token] for token in self.tokenize_en(en_text)] + [EOS_IDX], dtype=torch.long)
+        return de_tensor, en_tensor
 
-# --- 5. 数据处理和加载器创建函数 ---
+# --- 6. 数据加载器创建函数 ---
 def get_dataloaders(config, vocab_de, vocab_en, spacy_de, spacy_en):
-    """创建训练、验证、测试数据加载器"""
     print("正在创建数据加载器...")
     
-    def tokenize_de(text):
-        return [tok.text for tok in spacy_de.tokenizer(text)]
+    def tokenize_de(text): return [tok.text for tok in spacy_de.tokenizer(text)]
+    def tokenize_en(text): return [tok.text for tok in spacy_en.tokenizer(text)]
 
-    def tokenize_en(text):
-        return [tok.text for tok in spacy_en.tokenizer(text)]
-
-    def process_data(data_iter, vocab_de, vocab_en, tokenize_de, tokenize_en):
-        processed_data = []
-        for de_text, en_text in data_iter:
-            de_tensor = torch.tensor([SOS_IDX] + [vocab_de[token] for token in tokenize_de(de_text)] + [EOS_IDX], dtype=torch.long)
-            en_tensor = torch.tensor([SOS_IDX] + [vocab_en[token] for token in tokenize_en(en_text)] + [EOS_IDX], dtype=torch.long)
-            processed_data.append((de_tensor, en_tensor))
-        return processed_data
-
-    train_iter, valid_iter, test_iter = IWSLT2016(language_pair=('de', 'en'))
-    
-    train_data = process_data(train_iter, vocab_de, vocab_en, tokenize_de, tokenize_en)
-    valid_data = process_data(valid_iter, vocab_de, vocab_en, tokenize_de, tokenize_en)
-    test_data = process_data(test_iter, vocab_de, vocab_en, tokenize_de, tokenize_en)
-
-    train_dataset = TranslationDataset(train_data)
-    valid_dataset = TranslationDataset(valid_data)
-    test_dataset = TranslationDataset(test_data)
+    train_dataset = PyTorchTranslationDataset(TRAIN_DATA, vocab_de, vocab_en, tokenize_de, tokenize_en)
+    valid_dataset = PyTorchTranslationDataset(VALID_DATA, vocab_de, vocab_en, tokenize_de, tokenize_en)
+    test_dataset = PyTorchTranslationDataset(TEST_DATA, vocab_de, vocab_en, tokenize_de, tokenize_en)
 
     def collate_fn(batch):
-        """
-        自定义的collate_fn来处理批次数据，特别是进行填充
-        """
         src_batch, tgt_batch = [], []
         for src_sample, tgt_sample in batch:
             src_batch.append(src_sample)
             tgt_batch.append(tgt_sample)
         
-        # 使用pad_sequence来填充批次中的所有句子到相同的长度
         src_padded = pad_sequence(src_batch, padding_value=PAD_IDX, batch_first=True)
         tgt_padded = pad_sequence(tgt_batch, padding_value=PAD_IDX, batch_first=True)
         return src_padded, tgt_padded

@@ -66,27 +66,50 @@ class DecoderConvolutionalBlock(nn.Module):
     def __init__(self, hidden_dim, embed_dim, kernel_size, dropout):
         super().__init__()
         self.kernel_size = kernel_size
-        self.conv = nn.Conv1d(hidden_dim, hidden_dim * 2, kernel_size, padding=kernel_size - 1)
-        self.attention = AttentionLayer(hidden_dim, embed_dim)
         self.dropout = nn.Dropout(p=dropout)
+
+        self.conv = nn.Conv1d(hidden_dim, hidden_dim * 2, kernel_size) # padding将在forward中处理
+
+        # 注意力层返回 embed_dim，但卷积层内部是 hidden_dim
+        self.attention = AttentionLayer(hidden_dim, embed_dim)
+
+        # ------------------【核心修改点 1】------------------
+        # 增加一个线性层，将注意力输出从 embed_dim (256) 投射到 hidden_dim (512)
+        self.attention_to_hidden = nn.Linear(embed_dim, hidden_dim)
+        # ----------------------------------------------------
+
         # 层归一化可以进一步稳定训练
         self.layer_norm = nn.LayerNorm(hidden_dim)
 
+
     def forward(self, x, prev_word_embedding, encoder_out_dict):
+        # x 的输入格式是 (B, C, T) where C=hidden_dim
+
+        # 保存输入用于残差连接
         residual = x
+        
+        # 为了实现因果卷积，手动进行填充
+        padded_x = F.pad(x, (self.kernel_size - 1, 0))
 
         # 1. 因果卷积
-        x_conv = self.conv(x)
-        # 移除右侧多余的 k-1 个输出以保持长度和因果性
-        x_conv = x_conv[:, :, : -self.kernel_size + 1]
-        x_glu = F.glu(x_conv, dim=1)
-        x_glu = self.dropout(x_glu)
+        x_conv = self.conv(padded_x)
+        x_glu = F.glu(x_conv, dim=1) # 输出维度是 (B, hidden_dim, T)
 
         # 2. 多步注意力
-        attention_out = self.attention(x_glu, prev_word_embedding, encoder_out_dict)
+        attention_out = self.attention(x_glu, prev_word_embedding, encoder_out_dict) # 输出维度是 (B, embed_dim, T)
         
+        # ------------------【核心修改点 2】------------------
+        # 在相加之前，统一维度
+        # attention_out 是 (B, embed_dim, T)，需要转置后通过线性层
+        attention_out_proj = self.attention_to_hidden(attention_out.transpose(1, 2))
+        # 再转置回来 -> (B, hidden_dim, T)
+        attention_out_proj = attention_out_proj.transpose(1, 2)
+        # ----------------------------------------------------
+
         # 3. 将注意力和卷积输出结合
-        x = x_glu + attention_out
+        # 现在 x_glu 和 attention_out_proj 的维度都是 (B, hidden_dim, T)
+        x = x_glu + attention_out_proj
+        x = self.dropout(x)
         
         # 4. 残差连接
         x = x + residual
