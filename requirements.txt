@@ -1,5 +1,5 @@
-# 1. 指定 PyTorch 的下载源为 CPU 版本
---index-url https://download.pytorch.org/whl/cpu
+# 1. 将 PyTorch 的 CPU 仓库作为 *额外的* 下载源
+--extra-index-url https://download.pytorch.org/whl/cpu
 
 # 2. 指定 Python 包及其版本
 numpy<2.0
@@ -7,4 +7,8 @@ torch==2.1.0
 torchtext==0.16.0
 torchvision==0.16.0
 torchaudio==2.1.0
-spacy
+spacy==3.7.4
+
+# 新增：锁定与 torch 2.1.0 兼容的 transformers 和 safetensors 版本
+transformers==4.35.2
+safetensors==0.4.1
