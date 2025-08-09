@@ -39,6 +39,8 @@ conv-s2s-pytorch/
 2.  安装所需的依赖包:
     ```bash
     pip install -r requirements.txt
+    !python -m spacy download de_core_news_sm
+    !python -m spacy download en_core_web_sm
     ```
 
 ## 如何使用
